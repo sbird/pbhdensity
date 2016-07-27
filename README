@@ -1,0 +1,6 @@
+==Code to compute PBH merger rates==
+
+This is a python code to compute the merger rates of primordial black holes 
+under the assumptions outlined in Bird et al 2016, arXiv:1603.00464.
+
+Made available publically.
