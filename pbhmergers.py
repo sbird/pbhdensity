@@ -5,9 +5,13 @@ import scipy.special
 import matplotlib
 matplotlib.use('PDF')
 import matplotlib.pyplot as plt
+import pint
 import concentration
 import halo_mass_function as hm
 from save_figure import save_figure
+
+#This is a global so that the decorator checking works.
+ureg_chk=pint.UnitRegistry()
 
 def ggconc(conc):
     """Utility function that drops out of the NFW profile. Eq. 10 of the attached pdf."""
@@ -15,17 +19,14 @@ def ggconc(conc):
 
 class NFWHalo(hm.HaloMassFunction):
     """Class to add the ability to compute concentrations to the halo mass function"""
-    def __init__(self,*args,conc_model="ludlow", conc_value=1., **kwargs):
-        #in kg
-        self.solarmass = 1.98855e30
-        #1 Mpc in m
-        self.Mpc = 3.086e22
-        #speed of light in m/s
-        self.light = 2.99e8
-        #Newtons constant in units of m^3 kg^-1 s^-2
-        self.gravity = 6.67408e-11
-        #Number of seconds in a year
-        self.secperyr = 60*60*24*365
+    def __init__(self,*args,conc_model="ludlow", conc_value=1.,hubble=0.67, **kwargs):
+        self.ureg=pint.UnitRegistry()
+        self.ureg.define("Msolar = 1.98855*10**30 * kilogram")
+        #Mpc newton's constant and light speed are already defined.
+        #Hubble constant and related objects!
+        self.ureg.define(pint.definitions.UnitDefinition('hub', '', (),pint.converters.ScaleConverter(hubble)))
+        self.ureg.define("Msolarh = Msolar / hub")
+        self.ureg.define("Mpch = Mpc / hub")
         #Factor of R_s at which the maximum circular velocity of the halo is reached.
         self.dmax = 2.1626
         super().__init__(*args, **kwargs)
@@ -36,9 +37,14 @@ class NFWHalo(hm.HaloMassFunction):
         else:
             self.conc_model = concentration.ConstantConcentration(conc_value)
 
+    def get_nu(self,mass):
+        """Get nu, delta_c/sigma"""
+        return 1.686/self.overden.sigmaof_M_z(mass.to(self.ureg.Msolarh).magnitude)
+
     def concentration(self,mass):
         """Compute the concentration for a halo mass in Msun"""
-        nu = 1.686/self.overden.sigmaof_M_z(mass*self.overden.hubble0)
+        assert self.ureg.get_dimensionality('[mass]') == self.ureg.get_dimensionality(mass)
+        nu = self.get_nu(mass)
         zz = self.overden.redshift
         return self.conc_model.concentration(nu, zz)
 
@@ -47,19 +53,20 @@ class NFWHalo(hm.HaloMassFunction):
         #Newtons constant in units of m^3 kg^-1 s^-2
         #scale factor
         aa = 1./(1+self.overden.redshift)
-        #Hubble factor (~70km/s/Mpc) at z=0 in s^-1
-        hubble = self.overden.hubble0*3.24077929e-18
+        #Hubble factor (~70km/s/Mpc) at z=0:
+        hubble = 100 * self.ureg.hub* self.ureg.km / (1*self.ureg.s) / (1*self.ureg.Mpc)
         hubz2 = (self.overden.omega_matter0/aa**3 + self.overden.omega_lambda0) * hubble**2
         #Critical density at redshift in units of kg m^-3
-        rhocrit = 3 * hubz2 / (8*math.pi* self.gravity)
-        return rhocrit
+        rhocrit = 3 * hubz2 / (8*math.pi* self.ureg.newtonian_constant_of_gravitation)
+        return rhocrit.to_base_units()
 
     def R200(self, mass):
         """Get the virial radius in Mpc for a given mass in Msun"""
+        assert self.ureg.get_dimensionality('[mass]') == self.ureg.get_dimensionality(mass)
         rhoc = self.rhocrit()
         #Virial radius R200 in Mpc from the virial mass
-        R200 = np.cbrt(3 * mass * self.solarmass / (4* math.pi* 200 * rhoc))/self.Mpc
-        return R200
+        R200 = (3 * mass / (4* math.pi* 200 * rhoc))**(1/3.)
+        return R200.to('Mpc')
 
     def Rs(self, mass):
         """Scale radius of the halo in Mpc"""
@@ -68,8 +75,8 @@ class NFWHalo(hm.HaloMassFunction):
 
     def virialvel(self, mass):
         """Get the virial velocity in m/s for mass in Msun"""
-        #The factors of h cancel
-        return np.sqrt(2*self.gravity*self.solarmass*mass/(self.R200(mass)*self.Mpc))
+        assert self.ureg.get_dimensionality('[mass]') == self.ureg.get_dimensionality(mass)
+        return np.sqrt(2*self.ureg.newtonian_constant_of_gravitation*mass/self.R200(mass)).to_base_units()
 
     def Rmax(self, mass):
         """The radius at which the maximum circular velocity of a halo is reached"""
@@ -87,9 +94,11 @@ class NFWHalo(hm.HaloMassFunction):
         of the velocity dispersion and a maximum value of the virial velocity.
         Since MPBH drops out, set it to one here.
         Returns cross-section in m^3/s kg^-2"""
-        prefac = (4*math.pi)**2*(85*math.pi/3)**(2./7)*self.gravity**2/self.light**(10/7.)
-        sigma = self.vel_disp(mass)
-        vvir = self.virialvel(mass)
+        assert self.ureg.get_dimensionality('[mass]') == self.ureg.get_dimensionality(mass)
+        prefac = ((4*math.pi)**2*(85*math.pi/3)**(2./7)*self.ureg.newtonian_constant_of_gravitation**2/self.ureg.speed_of_light**3).to_base_units()
+        sigma = (self.vel_disp(mass)/self.ureg.speed_of_light).to_base_units()
+        vvir = (self.virialvel(mass)/self.ureg.speed_of_light).to_base_units()
+        assert self.ureg.get_dimensionality('') == self.ureg.get_dimensionality(sigma)
         #Now we have a mathematica integral in terms of gamma functions.
         #P[v_, sigma_, vvir_] := Exp[-v^2/sigma^2] - Exp[-vvir^2/sigma^2]
         #FunctionExpand[Integrate[v^(3/7)*P[v, sigma, Vvir], {v, 0, Vvir}]]
@@ -101,15 +110,10 @@ class NFWHalo(hm.HaloMassFunction):
         #We also need to normalise the probability function for v:
         #Integrate[4*Pi*v^2*P[v, sigma, Vvir], {v, 0, Vvir}]
         probnorm = math.pi**(3/2)*sigma**3*scipy.special.erf(vvir/sigma) - 2*math.pi/3*np.exp(-(vvir**2/sigma**2))*(3*sigma**2*vvir + 2*vvir**3)
-        #Once the normalisation passes through zero, we probably have roundoff
-        #and we should try again with a long double.
-        if not np.all(probnorm) > 0:
-            sigma = sigma.astype(np.float128)
-            vvir = vvir.astype(np.float128)
-            #Some crazy casting here because erf doesn't have a long double version.
-            probnorm = math.pi**(3/2)*sigma**3*scipy.special.erf((vvir/sigma).astype(np.float64)).astype(np.float128) - 2*math.pi/3*np.exp(-(vvir**2/sigma**2))*(3*sigma**2*vvir + 2*vvir**3)
-        assert np.all(probnorm > 0)
-        return prefac*(gammaint + cutoff)/probnorm
+        assert np.all(probnorm.magnitude > 0)
+        cross_section = prefac*(gammaint + cutoff)/probnorm
+        assert self.ureg.get_dimensionality('[length]**3 [time]**(-1) [mass]**(-2)') == self.ureg.get_dimensionality(cross_section)
+        return cross_section
 
     def profile(self, radius, mass):
         """The NFW profile at a given radius and mass."""
@@ -122,69 +126,93 @@ class NFWHalo(hm.HaloMassFunction):
 
     def pbhpbhrate(self, mass):
         """The merger rate for primordial black holes (per year) in a halo of mass in Msun, computed in the attached pdf."""
+        if self.ureg.get_dimensionality('') == self.ureg.get_dimensionality(mass):
+            mass = mass * self.ureg.Msolar
         conc = self.concentration(mass)
         crosssec = self.cross_section(mass)
         #In m
-        Rs = self.Rs(mass)*self.Mpc
-        rho0 = self.rho0(mass) * self.solarmass / self.Mpc**3
+        Rs = self.Rs(mass)
+        rho0 = self.rho0(mass)
         rate = crosssec * 2 * math.pi * rho0**2 * Rs**3 /3 * (1 - 1/(1+conc)**3)
-        return rate*self.secperyr
+        return rate.to('year**(-1)')
 
     def rho0(self, mass):
         """Central density for the NFW halo in units of M_sun Mpc^-3"""
+        assert self.ureg.get_dimensionality('[mass]') == self.ureg.get_dimensionality(mass)
         conc = self.concentration(mass)
         return mass / ( 4 * math.pi * self.Rs(mass)**3 * ggconc(conc))
 
-    def mergerpervolume(self, lowermass=5e2, uppermass=1e16):
+    def mergerpervolume(self, lowermass=None, uppermass=None):
         """The merger rate for primordial black holes in events per Gpc per yr."""
         #See notes for these limits
-        #mass has units M_sun/h
-        mass = np.logspace(np.log10(lowermass),np.log10(uppermass),1000)
-        #pbhrate is 1/s
-        pbhrate = self.pbhpbhrate(mass)
-        #dndm has units: h^4 M_sun^-1 Mpc^-3
-        dndm = self.dndm(mass*self.overden.hubble0)*self.overden.hubble0**4
-        assert np.all(dndm >= 0)
-        #So result is (h/Mpc)^3 /s
-        mergerrate = np.trapz(dndm * pbhrate*mass,np.log(mass))
-        GpcperMpch = 1e3**3
-        return mergerrate*GpcperMpch
+        if lowermass is None:
+            lowermass = 400*self.ureg.Msolar
+        if uppermass is None:
+            uppermass = 1e16*self.ureg.Msolar
+        if self.ureg.get_dimensionality('') == self.ureg.get_dimensionality(uppermass):
+            uppermass = uppermass * self.ureg.Msolar
+        if self.ureg.get_dimensionality('') == self.ureg.get_dimensionality(lowermass):
+            lowermass = lowermass * self.ureg.Msolar
+        #mass has units M_sun
+        mass = np.logspace(np.log10(lowermass/self.ureg.Msolar),np.log10(uppermass/self.ureg.Msolar),1000)*self.ureg.Msolar
+        integrand = self.halomergerratepervolume(mass)
+        #trapz needs a wrapper: because we are integrating d log M the units do not change.
+        int_units = self.ureg.Gpc**(-3)/self.ureg.year
+        trapz = self.ureg.wraps(int_units, int_units)(np.trapz)
+        mergerrate = trapz(integrand,np.log(mass/self.ureg.Msolar))
+        return mergerrate.to('Gpc**(-3) year**(-1)')
 
-    def mergerfraction(self, vvir, time=6., bhmass = 30):
+    def mergerfraction(self, vvir, time=None, bhmass = None):
         """Compute the fraction of black hole binaries which merge within time,
         following O'Leary+2008 Eq. 27. for a halo of virial velocity vvir.
         Time is in Gyr.
         bhmass is in M_sun and is the mass of the merging objects."""
+        if bhmass is None:
+            bhmass = 30 * self.ureg.Msolar
+        if time is None:
+            time = 6 * self.ureg.Gyear
+        assert self.ureg.get_dimensionality(self.ureg.speed_of_light) == self.ureg.get_dimensionality(vvir)
         #Convert time to s
-        timesec = time * self.secperyr * 1e9
         c1 = 3* math.sqrt(3)/(170*math.sqrt(85* math.pi))
         #c2 = (340*math.pi/3)**(1/7.)
-        prefac = (self.light**3 * timesec / (c1 * self.gravity * 2 * bhmass * self.solarmass))**(2/21.)
-        effcs = prefac * (vvir/self.light)**(2/7.)
-        #A quick way to set a maximum that works for both single numbers and arrays
-#         effcs *= ((effcs > 1)/effcs + (effcs < 1))
+        prefac = (self.ureg.speed_of_light**3 * time / (c1 * self.ureg.newtonian_constant_of_gravitation * 2 * bhmass ))**(2/21.)
+        effcs = (prefac * (vvir/self.ureg.speed_of_light)**(2/7.)).to_base_units()
         return effcs**2
 
     def halomergerratepervolume(self, mass):
         """The merger rate per year per unit volume for halos in a mass bin."""
-        GpcperMpch = 1e3**3
-        return self.overden.hubble0**4*self.dndm(mass*self.overden.hubble0)*self.pbhpbhrate(mass)*mass*GpcperMpch
+        if self.ureg.get_dimensionality('') == self.ureg.get_dimensionality(mass):
+            mass = mass * self.ureg.Msolar
+        #pbhrate is 1/s
+        pbhrate = self.pbhpbhrate(mass)
+        dndm_func = self.ureg.wraps('Mpch**(-3) Msolarh**(-1)', self.ureg.Msolarh)(self.dndm)
+        #dndm has units: h^4 M_sun^-1 Mpc^-3
+        dndm = dndm_func(mass).to('Mpc**(-3) Msolar**(-1)')
+        assert np.all(dndm.magnitude >= 0)
+        #So result is (Mpc)^-3 s^-1
+        return (dndm * pbhrate * mass).to('Gpc**(-3) year**(-1)')
 
-    def evaptime(self,mass, bhmass=30):
+    def evaptime(self,mass, bhmass=None):
         """The evaporation timescale following Binney and Tremaine."""
+        if bhmass is None:
+            bhmass = 30 * self.ureg.Msolar
         vv = self.vel_disp(mass)
         Rs = self.Rs(mass)
-        return 14 * mass/ bhmass / np.log(mass/bhmass) * Rs *self.Mpc/0.7 / vv / self.secperyr
+        return (14 * mass/ bhmass / np.log(mass/bhmass) * Rs / vv).to('Gyear')
 
-    def threebodyratio(self,mass):
+    def threebodyratio(self,mass, bhmass=None):
         """The ratio between three body and two body binary formation rate.
         This becomes large in small halos."""
+        if bhmass is None:
+            bhmass = 30 * self.ureg.Msolar
         vel = self.vel_disp(mass)
-        return 18*(mass/30.)**(-2)*(vel/self.light)**(-10./7)
+        return 18*(mass/bhmass)**(-2)*(vel/self.ureg.speed_of_light)**(-10./7)
 
-    def mergerhalflife(self,mass,threefac=True, bhmass=30.):
+    def mergerhalflife(self,mass,threefac=True, bhmass=None):
         """The timescale for 50% of the mass of the halo to have merged."""
         rate = self.pbhpbhrate(mass)
+        if bhmass is None:
+            bhmass = 30 * self.ureg.Msolar
         if threefac:
             threefac = self.threebodyratio(mass)
             threefac = np.max([threefac, np.ones_like(threefac)],axis=0)
@@ -193,9 +221,8 @@ class NFWHalo(hm.HaloMassFunction):
 
     def bias(self,mass):
         """The formula for halo bias in EPS theory (Mo & White 1996), eq. 13"""
-        delta_c = 1.686
-        nu = delta_c/self.overden.sigmaof_M_z(mass*self.overden.hubble0)
-        bhalo = (1 + (nu**2 -1)/ delta_c)
+        nu = self.get_nu(mass)
+        bhalo = (1 + (nu**2 -1)/ 1.686)
         return bhalo
 
 class EinastoHalo(NFWHalo):
@@ -203,13 +230,15 @@ class EinastoHalo(NFWHalo):
     def pbhpbhrate(self, mass):
         """The merger rate for primordial black holes (per year) in a halo of mass in Msun/h, computed in the attached pdf."""
         #Virial radius R200 in Mpc/h from the virial mass
+        if self.ureg.get_dimensionality('') == self.ureg.get_dimensionality(mass):
+            mass = mass * self.ureg.Msolar
         conc = self.concentration(mass)
         alpha = 0.18
         crosssec = self.cross_section(mass)
-        rho0 = self.rho0(mass) * self.solarmass/self.Mpc**3
-        d2 = np.exp(4/alpha) * (self.Rs(mass)*self.Mpc)**3 /alpha * (alpha/4)**(3/alpha) * scipy.special.gammainc(3/alpha, 4/alpha * conc**alpha) * scipy.special.gamma(3/alpha)
+        rho0 = self.rho0(mass)
+        d2 = np.exp(4/alpha) * self.Rs(mass)**3 /alpha * (alpha/4)**(3/alpha) * scipy.special.gammainc(3/alpha, 4/alpha * conc**alpha) * scipy.special.gamma(3/alpha)
         rate = 2 * math.pi* crosssec * d2 * rho0**2
-        return rate*self.secperyr
+        return rate.to('year**(-1)')
 
     def rho0(self, mass):
         """Central density for the Einasto profile in M_sun/Mpc^3 h^2"""
@@ -253,7 +282,6 @@ def plot_pbh_per_mass(redshift):
     """Plot the PBH merger rate per unit volume as a function of halo mass"""
     mass = np.logspace(2,15)
     hh = NFWHalo(redshift,conc_model="ludlow")
-    GpcperMpch = 1e3**3*hh.overden.hubble0**3
     hh.conc_model = concentration.LudlowConcentration(hh.overden.Dofz)
     plt.loglog(mass,  hh.halomergerratepervolume(mass), ls='-', label="Ludlow concentration")
     hh.conc_model = concentration.PradaConcentration(hh.overden.omega_matter0)
@@ -316,23 +344,23 @@ def merger_at_z(z, conc="Ludlow", halo="Einasto"):
     #the rest frame of the event.
     #For the rest frame of the observer,
     #you need to account for time dilation.
-    return merg / (1+z)
+    return merg.to('Gpc**(-3) year**(-1)') / (1+z)
 
 def rate_over_redshift(zmin=0., zmax=20., nred = 100,conc="Ludlow", halo="Einasto"):
     """Compute the merger rate over a wide redshift range."""
     zzs = 1/np.linspace(1/(1+zmax), 1/(1+zmin),nred) -1.
-    mergers = np.array([merger_at_z(zz,conc=conc, halo=halo) for zz in zzs])
+    mergers = np.array([merger_at_z(zz,conc=conc, halo=halo).magnitude for zz in zzs])
     return zzs, mergers
 
-def redshift_tables():
+def redshift_tables(nred=100):
     """Print tables of the redshift evolution of the mergers"""
-    zzs, mergers = rate_over_redshift(conc="Ludlow", halo="Einasto")
+    zzs, mergers = rate_over_redshift(conc="Ludlow", halo="Einasto", nred=nred)
     np.savetxt("ludlow_einasto.txt", np.array((zzs,mergers)).T)
-    zzs, mergers = rate_over_redshift(conc="Ludlow", halo="NFW")
+    zzs, mergers = rate_over_redshift(conc="Ludlow", halo="NFW", nred=nred)
     np.savetxt("ludlow_nfw.txt", np.array((zzs,mergers)).T)
-    zzs, mergers = rate_over_redshift(conc="Prada", halo="Einasto")
+    zzs, mergers = rate_over_redshift(conc="Prada", halo="Einasto", nred=nred)
     np.savetxt("prada_einasto.txt", np.array((zzs,mergers)).T)
-    zzs, mergers = rate_over_redshift(conc="Prada", halo="NFW")
+    zzs, mergers = rate_over_redshift(conc="Prada", halo="NFW", nred=nred)
     np.savetxt("prada_nfw.txt", np.array((zzs,mergers)).T)
 
 def print_numbers():
