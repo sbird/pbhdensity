@@ -11,7 +11,7 @@ import numpy as np
 import scipy.integrate as integ
 import scipy.interpolate
 
-class HaloMassFunction:
+class HaloMassFunction(object):
     """Module for calculating halo mass functions. Largely stolen from yt.
 
     Note self.mass_function(sigma) will return the mass function as defined in eq. 4 of Jenkins 2001.
@@ -121,7 +121,7 @@ class HaloMassFunction:
         c = 1.210
         return A*( np.power(b / sigma, 1.0*a) + 1)*np.exp(-1.0*c / sigma / sigma )
 
-class Overdensities:
+class Overdensities(object):
     """Module for calculating the linear theory overdensities.
     Main result obtained from sigmaof_M_z"""
     def __init__(self,redshift,omega_m=0.27, omega_b=0.045,omega_l=0.73,hubble=0.67, ns=0.95,sigma8=0.8,num_sigma_bins=100,log_mass_lim=(1, 20), use_pbh=False):
