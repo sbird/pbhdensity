@@ -8,7 +8,6 @@ import matplotlib.pyplot as plt
 import pint
 import concentration
 import halo_mass_function as hm
-from save_figure import save_figure
 
 #This is a global so that the decorator checking works.
 ureg_chk=pint.UnitRegistry()
@@ -275,7 +274,7 @@ def plot_pbh_halo(redshift):
     plt.ylim(1e-15,1e-10)
     plt.xticks(np.logspace(3,15,5))
     plt.legend(loc=0)
-    save_figure("halomergerrate")
+    plt.savefig("halomergerrate.pdf")
     plt.clf()
 
 def plot_pbh_per_mass(redshift):
@@ -298,7 +297,7 @@ def plot_pbh_per_mass(redshift):
     plt.ylim(1e-8, 1)
     #plt.title("Total mergers is area under this curve")
     plt.legend(loc=0)
-    save_figure("volumemergerrate")
+    plt.savefig("volumemergerrate.pdf")
     plt.clf()
 
 def plot_concentration_vs_mass(redshift):
@@ -314,7 +313,7 @@ def plot_concentration_vs_mass(redshift):
     plt.ylabel(r"Concentration")
     plt.ylim(1e-8, 1)
     plt.legend(loc=0)
-    save_figure("concentration")
+    plt.savefig("concentration.pdf")
     plt.clf()
 
 def _print_numbers(hh):
