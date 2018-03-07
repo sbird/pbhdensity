@@ -23,7 +23,7 @@ class NFWHalo(hm.HaloMassFunction):
         self.ureg.define("Msolar = 1.98855*10**30 * kilogram")
         #Mpc newton's constant and light speed are already defined.
         #Hubble constant and related objects!
-        self.ureg.define(pint.definitions.UnitDefinition('hub', '', (),pint.converters.ScaleConverter(hubble)))
+        self.ureg.define(pint.unit.UnitDefinition('hub', '', (),pint.unit.ScaleConverter(hubble)))
         self.ureg.define("Msolarh = Msolar / hub")
         self.ureg.define("Mpch = Mpc / hub")
         #Factor of R_s at which the maximum circular velocity of the halo is reached.
@@ -42,7 +42,7 @@ class NFWHalo(hm.HaloMassFunction):
 
     def concentration(self,mass):
         """Compute the concentration for a halo mass in Msun"""
-        assert self.ureg.get_dimensionality('[mass]') == self.ureg.get_dimensionality(mass)
+#         assert self.ureg.get_dimensionality('[mass]') == self.ureg.get_dimensionality(mass)
         nu = self.get_nu(mass)
         zz = self.overden.redshift
         return self.conc_model.concentration(nu, zz)
@@ -61,10 +61,10 @@ class NFWHalo(hm.HaloMassFunction):
 
     def R200(self, mass):
         """Get the virial radius in Mpc for a given mass in Msun"""
-        assert self.ureg.get_dimensionality('[mass]') == self.ureg.get_dimensionality(mass)
+#         assert self.ureg.get_dimensionality('[mass]') == self.ureg.get_dimensionality(mass)
         rhoc = self.rhocrit()
         #Virial radius R200 in Mpc from the virial mass
-        R200 = (3 * mass / (4* math.pi* 200 * rhoc))**(1/3.)
+        R200 = ((3 * mass / (4* math.pi* 200 * rhoc)).to('Mpc**3'))**(1/3.)
         return R200.to('Mpc')
 
     def Rs(self, mass):
@@ -74,7 +74,7 @@ class NFWHalo(hm.HaloMassFunction):
 
     def virialvel(self, mass):
         """Get the virial velocity in m/s for mass in Msun"""
-        assert self.ureg.get_dimensionality('[mass]') == self.ureg.get_dimensionality(mass)
+#         assert self.ureg.get_dimensionality('[mass]') == self.ureg.get_dimensionality(mass)
         return np.sqrt(2*self.ureg.newtonian_constant_of_gravitation*mass/self.R200(mass)).to_base_units()
 
     def Rmax(self, mass):
@@ -93,11 +93,11 @@ class NFWHalo(hm.HaloMassFunction):
         of the velocity dispersion and a maximum value of the virial velocity.
         Since MPBH drops out, set it to one here.
         Returns cross-section in m^3/s kg^-2"""
-        assert self.ureg.get_dimensionality('[mass]') == self.ureg.get_dimensionality(mass)
+#         assert self.ureg.get_dimensionality('[mass]') == self.ureg.get_dimensionality(mass)
         prefac = ((4*math.pi)**2*(85*math.pi/3)**(2./7)*self.ureg.newtonian_constant_of_gravitation**2/self.ureg.speed_of_light**3).to_base_units()
         sigma = (self.vel_disp(mass)/self.ureg.speed_of_light).to_base_units()
         vvir = (self.virialvel(mass)/self.ureg.speed_of_light).to_base_units()
-        assert self.ureg.get_dimensionality('') == self.ureg.get_dimensionality(sigma)
+#         assert self.ureg.get_dimensionality('') == self.ureg.get_dimensionality(sigma)
         #Now we have a mathematica integral in terms of gamma functions.
         #P[v_, sigma_, vvir_] := Exp[-v^2/sigma^2] - Exp[-vvir^2/sigma^2]
         #FunctionExpand[Integrate[v^(3/7)*P[v, sigma, Vvir], {v, 0, Vvir}]]
@@ -111,7 +111,7 @@ class NFWHalo(hm.HaloMassFunction):
         probnorm = math.pi**(3/2)*sigma**3*scipy.special.erf(vvir/sigma) - 2*math.pi/3*np.exp(-(vvir**2/sigma**2))*(3*sigma**2*vvir + 2*vvir**3)
         assert np.all(probnorm.magnitude > 0)
         cross_section = prefac*(gammaint + cutoff)/probnorm
-        assert self.ureg.get_dimensionality('[length]**3 [time]**(-1) [mass]**(-2)') == self.ureg.get_dimensionality(cross_section)
+#         assert self.ureg.get_dimensionality('[length]**3 [time]**(-1) [mass]**(-2)') == self.ureg.get_dimensionality(cross_section)
         return cross_section
 
     def profile(self, radius, mass):
@@ -137,7 +137,7 @@ class NFWHalo(hm.HaloMassFunction):
 
     def rho0(self, mass):
         """Central density for the NFW halo in units of M_sun Mpc^-3"""
-        assert self.ureg.get_dimensionality('[mass]') == self.ureg.get_dimensionality(mass)
+#         assert self.ureg.get_dimensionality('[mass]') == self.ureg.get_dimensionality(mass)
         conc = self.concentration(mass)
         return mass / ( 4 * math.pi * self.Rs(mass)**3 * ggconc(conc))
 
@@ -170,7 +170,7 @@ class NFWHalo(hm.HaloMassFunction):
             bhmass = 30 * self.ureg.Msolar
         if time is None:
             time = 6 * self.ureg.Gyear
-        assert self.ureg.get_dimensionality(self.ureg.speed_of_light) == self.ureg.get_dimensionality(vvir)
+#         assert self.ureg.get_dimensionality(self.ureg.speed_of_light) == self.ureg.get_dimensionality(vvir)
         #Convert time to s
         c1 = 3* math.sqrt(3)/(170*math.sqrt(85* math.pi))
         #c2 = (340*math.pi/3)**(1/7.)
