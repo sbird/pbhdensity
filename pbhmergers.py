@@ -23,7 +23,11 @@ class NFWHalo(hm.HaloMassFunction):
         self.ureg.define("Msolar = 1.98855*10**30 * kilogram")
         #Mpc newton's constant and light speed are already defined.
         #Hubble constant and related objects!
-        self.ureg.define(pint.unit.UnitDefinition('hub', '', (),pint.unit.ScaleConverter(hubble)))
+        #The try except is because the method names change between pint 0.6 and pint 0.8
+        try:
+            self.ureg.define(pint.unit.UnitDefinition('hub', '', (),pint.unit.ScaleConverter(hubble)))
+        except AttributeError:
+            self.ureg.define(pint.definitions.UnitDefinition('hub', '', (),pint.converters.ScaleConverter(hubble)))
         self.ureg.define("Msolarh = Msolar / hub")
         self.ureg.define("Mpch = Mpc / hub")
         #Factor of R_s at which the maximum circular velocity of the halo is reached.
